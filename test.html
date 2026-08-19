@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>job_104 測試頁</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.2rem; }
+  input { display: block; width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0 12px; }
+  button { padding: 8px 16px; cursor: pointer; }
+  #app { display: none; }
+  #status { color: #666; font-size: 0.9rem; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  td, th { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; font-size: 0.9rem; }
+  .del-btn { color: #c00; cursor: pointer; background: none; border: none; padding: 2px 6px; }
+</style>
+</head>
+<body>
+
+<h1>job_104 測試頁</h1>
+
+<div id="login">
+  <input id="email" type="email" placeholder="Email">
+  <input id="password" type="password" placeholder="密碼">
+  <button id="loginBtn">登入</button>
+  <div id="status"></div>
+</div>
+
+<div id="app">
+  <p>已登入：<span id="whoami"></span> <button id="logoutBtn">登出</button></p>
+
+  <h2>新增搜尋條件</h2>
+  <input id="location" placeholder="地點，例如 高雄">
+  <input id="keywords" placeholder="關鍵字，例如 python, sql, 金融業">
+  <button id="addBtn">新增</button>
+
+  <h2>我的搜尋條件</h2>
+  <table>
+    <thead><tr><th>地點</th><th>關鍵字</th><th>建立時間</th><th></th></tr></thead>
+    <tbody id="list"></tbody>
+  </table>
+</div>
+
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+  // TODO: 填入 Settings → API 裡的 Publishable key
+  const SUPABASE_URL = 'https://rrvvmrmfzpdmwdqurfpr.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_VCgOkp2h7RjVXnZL1Pm22g_L9P6VXTa';
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const $ = (id) => document.getElementById(id);
+
+  $('loginBtn').onclick = async () => {
+    $('status').textContent = '登入中...';
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: $('email').value,
+      password: $('password').value,
+    });
+    if (error) {
+      $('status').textContent = '登入失敗：' + error.message;
+      return;
+    }
+    $('login').style.display = 'none';
+    $('app').style.display = 'block';
+    $('whoami').textContent = data.user.email;
+    loadSearches();
+  };
+
+  $('logoutBtn').onclick = async () => {
+    await supabase.auth.signOut();
+    $('app').style.display = 'none';
+    $('login').style.display = 'block';
+    $('status').textContent = '';
+  };
+
+  $('addBtn').onclick = async () => {
+    const location = $('location').value.trim();
+    const keywords = $('keywords').value.trim();
+    if (!location || !keywords) return;
+    const { error } = await supabase.from('saved_searches').insert({ location, keywords });
+    if (error) {
+      alert('新增失敗：' + error.message);
+      return;
+    }
+    $('location').value = '';
+    $('keywords').value = '';
+    loadSearches();
+  };
+
+  async function loadSearches() {
+    const { data, error } = await supabase
+      .from('saved_searches')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      alert('讀取失敗：' + error.message);
+      return;
+    }
+    $('list').innerHTML = data.map(row => `
+      <tr>
+        <td>${row.location}</td>
+        <td>${row.keywords}</td>
+        <td>${new Date(row.created_at).toLocaleString()}</td>
+        <td><button class="del-btn" data-id="${row.id}">刪除</button></td>
+      </tr>
+    `).join('');
+    document.querySelectorAll('.del-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const { error } = await supabase.from('saved_searches').delete().eq('id', btn.dataset.id);
+        if (error) { alert('刪除失敗：' + error.message); return; }
+        loadSearches();
+      };
+    });
+  }
+
+  // 如果之前已經登入過（session 還在），自動恢復畫面
+  supabase.auth.getSession().then(({ data }) => {
+    if (data.session) {
+      $('login').style.display = 'none';
+      $('app').style.display = 'block';
+      $('whoami').textContent = data.session.user.email;
+      loadSearches();
+    }
+  });
+</script>
+
+</body>
+</html>

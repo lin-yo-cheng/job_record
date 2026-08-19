@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>job_104 搜尋條件管理</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.2rem; }
+  nav { margin-bottom: 16px; }
+  nav a { margin-right: 12px; }
+  input { display: block; width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0 12px; }
+  button { padding: 8px 16px; cursor: pointer; }
+  #app { display: none; }
+  #status { color: #666; font-size: 0.9rem; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  td, th { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; font-size: 0.9rem; }
+  .del-btn { color: #c00; cursor: pointer; background: none; border: none; padding: 2px 6px; }
+  .hint { color: #888; font-size: 0.8rem; margin-top: -8px; }
+</style>
+</head>
+<body>
+
+<h1>job_104 搜尋條件管理</h1>
+<nav><a href="jobs.html">前往職缺列表 →</a></nav>
+
+<div id="login">
+  <input id="email" type="email" placeholder="Email">
+  <input id="password" type="password" placeholder="密碼">
+  <button id="loginBtn">登入</button>
+  <div id="status"></div>
+</div>
+
+<div id="app">
+  <p>已登入：<span id="whoami"></span> <button id="logoutBtn">登出</button></p>
+
+  <h2>新增搜尋條件</h2>
+  <input id="area" placeholder="地區，多個用逗號分隔，例如 高雄, 台南">
+  <p class="hint">每天排程會依這裡的地區＋關鍵字組合去爬 104</p>
+  <input id="keywords" placeholder="關鍵字，多個用逗號分隔，例如 python, sql, 金融業">
+  <button id="addBtn">新增</button>
+
+  <h2>我的搜尋條件</h2>
+  <table>
+    <thead><tr><th>地區</th><th>關鍵字</th><th>建立時間</th><th></th></tr></thead>
+    <tbody id="list"></tbody>
+  </table>
+</div>
+
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+  const SUPABASE_URL = 'https://rrvvmrmfzpdmwdqurfpr.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_VCgOkp2h7RjVXnZL1Pm22g_L9P6VXTa';
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const $ = (id) => document.getElementById(id);
+
+  $('loginBtn').onclick = async () => {
+    $('status').textContent = '登入中...';
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: $('email').value,
+      password: $('password').value,
+    });
+    if (error) {
+      $('status').textContent = '登入失敗：' + error.message;
+      return;
+    }
+    showApp(data.user.email);
+  };
+
+  $('logoutBtn').onclick = async () => {
+    await supabase.auth.signOut();
+    $('app').style.display = 'none';
+    $('login').style.display = 'block';
+    $('status').textContent = '';
+  };
+
+  function showApp(email) {
+    $('login').style.display = 'none';
+    $('app').style.display = 'block';
+    $('whoami').textContent = email;
+    loadSearches();
+  }
+
+  function parseList(value) {
+    return value.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  $('addBtn').onclick = async () => {
+    const area = parseList($('area').value);
+    const keywords = parseList($('keywords').value);
+    if (!area.length || !keywords.length) {
+      alert('請輸入地區與關鍵字');
+      return;
+    }
+    const { error } = await supabase.from('saved_searches').insert({ area, keywords });
+    if (error) {
+      alert('新增失敗：' + error.message);
+      return;
+    }
+    $('area').value = '';
+    $('keywords').value = '';
+    loadSearches();
+  };
+
+  async function loadSearches() {
+    const { data, error } = await supabase
+      .from('saved_searches')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      alert('讀取失敗：' + error.message);
+      return;
+    }
+    $('list').innerHTML = data.map(row => `
+      <tr>
+        <td>${row.area.join('、')}</td>
+        <td>${row.keywords.join('、')}</td>
+        <td>${new Date(row.created_at).toLocaleString()}</td>
+        <td><button class="del-btn" data-id="${row.id}">刪除</button></td>
+      </tr>
+    `).join('');
+    document.querySelectorAll('.del-btn').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('確定刪除這組搜尋條件？（不影響已抓到的職缺紀錄和狀態）')) return;
+        const { error } = await supabase.from('saved_searches').delete().eq('id', btn.dataset.id);
+        if (error) { alert('刪除失敗：' + error.message); return; }
+        loadSearches();
+      };
+    });
+  }
+
+  // 如果之前已經登入過（session 還在），自動恢復畫面
+  supabase.auth.getSession().then(({ data }) => {
+    if (data.session) showApp(data.session.user.email);
+  });
+</script>
+
+</body>
+</html>
