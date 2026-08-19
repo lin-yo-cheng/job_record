@@ -1,0 +1,49 @@
+name: Test 104 cookie cross-IP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install requests
+        run: pip install requests
+
+      - name: Test cookie against 104 API
+        env:
+          JOB104_COOKIE: ${{ secrets.JOB104_COOKIE }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          import requests
+          from urllib.parse import quote
+
+          cookie = os.environ['JOB104_COOKIE']
+
+          headers = {
+              'Accept': 'application/json, text/plain, */*',
+              'Referer': 'https://www.104.com.tw/jobs/search/?keyword=' + quote('python'),
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+              'Cookie': cookie,
+          }
+
+          res = requests.get(
+              'https://www.104.com.tw/jobs/search/api/jobs',
+              headers=headers,
+              params={'keyword': 'python', 'order': '15', 'pagesize': '20', 'area': '6001016000', 'page': '1'},
+              timeout=15,
+          )
+
+          print(f'STATUS_CODE: {res.status_code}')
+          is_json = res.text.strip().startswith('{')
+          print(f'LOOKS_LIKE_JSON: {is_json}')
+
+          if res.status_code == 200 and is_json:
+              data = res.json()
+              total = data.get('metadata', {}).get('pagination', {}).get('total', 'unknown')
+              print(f'RESULT: SUCCESS, total={total}')
+          else:
+              print('RESULT: FAILED - cookie likely invalid from this IP or blocked by Cloudflare')
+              print('BODY_PREVIEW:', res.text.strip()[:300])
+          EOF
