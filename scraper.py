@@ -230,6 +230,8 @@ def main():
             sb_report_status(False, str(e))
             sys.exit(1)
 
+        job_ids = list(dict.fromkeys(job_ids))  # 104 分頁結果偶爾會重疊，先去重
+
         print(f'搜尋 {search_id}（{keyword_str} / {area_names}）命中 {len(job_ids)} 筆')
         user_matched_jobs.setdefault(user_id, set()).update(job_ids)
 
@@ -293,4 +295,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f'[未預期的錯誤] {e}')
+        sb_report_status(False, f'未預期的錯誤: {e}')
+        sys.exit(1)
