@@ -18,6 +18,8 @@
   td, th { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; font-size: 0.9rem; }
   select { padding: 4px; }
   .count { color: #888; font-size: 0.85rem; margin-top: 8px; }
+  .banner { display: none; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem; }
+  .banner.warn { display: block; background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
 </style>
 </head>
 <body>
@@ -34,6 +36,8 @@
 
 <div id="app">
   <p>已登入：<span id="whoami"></span> <button id="logoutBtn">登出</button></p>
+
+  <div id="scraperBanner" class="banner"></div>
 
   <div class="filters">
     <div>
@@ -114,6 +118,26 @@
     $('app').style.display = 'block';
     $('whoami').textContent = email;
     loadJobs();
+    checkScraperStatus();
+  }
+
+  async function checkScraperStatus() {
+    const { data, error } = await supabase
+      .from('scraper_status')
+      .select('*')
+      .eq('id', 1)
+      .maybeSingle();
+    if (error || !data) return;
+
+    const banner = $('scraperBanner');
+    if (!data.last_success) {
+      const when = data.last_run_at ? new Date(data.last_run_at).toLocaleString() : '未知時間';
+      banner.textContent = `⚠️ 資料可能不是最新的：最近一次排程於 ${when} 失敗（${data.last_error || '原因未知'}），請通知管理者更新`;
+      banner.classList.add('warn');
+    } else {
+      banner.classList.remove('warn');
+      banner.textContent = '';
+    }
   }
 
   async function loadJobs() {

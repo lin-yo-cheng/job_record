@@ -1,3 +1,5 @@
 .env
 *.xlsx
 _test_cookie.py
+__pycache__/
+full_run_log.txt
