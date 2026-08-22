@@ -186,13 +186,8 @@ def verify_job_alive(job_id):
 # ---------- 主流程 ----------
 
 def main():
-    print(f'[{now_iso()}] 排程開始')
-
-    # 0. 清空上一輪還沒被使用者處理的「最新資料」標記
-    stale = sb_get('job_status', params={'status': 'eq.最新資料', 'select': 'id'})
-    if stale:
-        sb_patch('job_status', {'status': 'eq.最新資料'}, {'status': None})
-        print(f'清空 {len(stale)} 筆過期的「最新資料」標記')
+    run_started_at = now_iso()
+    print(f'[{run_started_at}] 排程開始')
 
     # 1. 撈所有使用者的搜尋條件
     searches = sb_get('saved_searches', params={'select': '*'})
@@ -249,11 +244,22 @@ def main():
             sb_insert('jobs', new_rows)
             known_job_ids.update(r['job_id'] for r in new_rows)
             print(f'  新增 {len(new_rows)} 筆新職缺')
+
+        # 標記「這個使用者第一次看到」的職缺為最新資料——不限於系統才新增的職缺，
+        # 也包含系統早就有、但這是這個使用者的搜尋第一次命中的舊職缺（例如朋友剛加的搜尋條件）
+        existing_status = sb_get(
+            'job_status',
+            params={'user_id': f'eq.{user_id}', 'job_id': f'in.({",".join(job_ids)})', 'select': 'job_id'},
+        ) if job_ids else []
+        already_known_by_user = {r['job_id'] for r in existing_status}
+        first_seen_by_user = [jid for jid in job_ids if jid not in already_known_by_user]
+        if first_seen_by_user:
             status_rows = [
-                {'user_id': user_id, 'job_id': r['job_id'], 'status': '最新資料', 'updated_at': now_iso()}
-                for r in new_rows
+                {'user_id': user_id, 'job_id': jid, 'status': '最新資料', 'updated_at': now_iso()}
+                for jid in first_seen_by_user
             ]
             sb_upsert('job_status', status_rows, on_conflict='user_id,job_id')
+            print(f'  標記 {len(first_seen_by_user)} 筆「使用者第一次看到」的最新資料')
 
         if existing_ids:
             sb_patch(
@@ -280,6 +286,20 @@ def main():
     if dead_ids:
         sb_patch('jobs', {'job_id': f'in.({",".join(dead_ids)})'}, {'is_delisted': True, 'delisted_at': now_iso()})
     print(f'標記下架：{len(dead_ids)} 筆')
+
+    # 3. 只有整個排程成功跑到這裡，才清空「上一輪之前」還沒被使用者處理的最新資料標記
+    #    用 run_started_at 當界線，不會誤刪這次剛剛才標上去的最新資料
+    stale = sb_get(
+        'job_status',
+        params={'status': 'eq.最新資料', 'updated_at': f'lt.{run_started_at}', 'select': 'id'},
+    )
+    if stale:
+        sb_patch(
+            'job_status',
+            {'status': 'eq.最新資料', 'updated_at': f'lt.{run_started_at}'},
+            {'status': None},
+        )
+        print(f'清空 {len(stale)} 筆過期的「最新資料」標記')
 
     sb_report_status(True)
     print(f'[{now_iso()}] 排程完成')
