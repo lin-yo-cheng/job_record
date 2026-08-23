@@ -49,6 +49,14 @@
       <input id="filterSalaryMin" type="number" placeholder="例如 40000">
     </div>
     <div>
+      <label>最少公司人數（大於，公司規模）</label>
+      <input id="filterEmployeeMin" type="number" placeholder="例如 100">
+    </div>
+    <div>
+      <label>排除關鍵字（逗號分隔，職務類別／職缺名稱符合任一即排除）</label>
+      <input id="filterExclude" placeholder="例如 業務, 電話行銷">
+    </div>
+    <div>
       <button id="applyFilterBtn">套用篩選</button>
     </div>
     <div>
@@ -110,8 +118,15 @@
   $('clearFilterBtn').onclick = () => {
     $('filterSkill').value = '';
     $('filterSalaryMin').value = '';
+    $('filterEmployeeMin').value = '';
+    $('filterExclude').value = '';
     renderJobs();
   };
+
+  function parseEmployeeCount(val) {
+    const m = String(val || '').match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  }
 
   function showApp(email) {
     $('login').style.display = 'none';
@@ -177,6 +192,9 @@
     const skillTerms = $('filterSkill').value.split(',').map(s => s.trim()).filter(Boolean);
     const salaryMinRaw = $('filterSalaryMin').value;
     const salaryMin = salaryMinRaw === '' ? null : Number(salaryMinRaw);
+    const employeeMinRaw = $('filterEmployeeMin').value;
+    const employeeMin = employeeMinRaw === '' ? null : Number(employeeMinRaw);
+    const excludeTerms = $('filterExclude').value.split(',').map(s => s.trim()).filter(Boolean);
 
     const filtered = allJobs.filter(j => {
       if (skillTerms.length) {
@@ -187,6 +205,16 @@
       if (salaryMin !== null) {
         const max = j.salary_max;
         if (!(max > salaryMin || max === 0 || max === null)) return false;
+      }
+      if (employeeMin !== null) {
+        const count = parseEmployeeCount(j.employees);
+        // 公司人數欄位無法解析（例如「暫不提供」）就保留，不因為篩不到數字而排除
+        if (count !== null && !(count > employeeMin)) return false;
+      }
+      if (excludeTerms.length) {
+        const combined = ((j.job_name || '') + ' ' + (j.job_category || '')).toLowerCase();
+        const hasExcluded = excludeTerms.some(t => combined.includes(t.toLowerCase()));
+        if (hasExcluded) return false;
       }
       return true;
     });
