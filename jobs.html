@@ -20,6 +20,10 @@
   .count { color: #888; font-size: 0.85rem; margin-top: 8px; }
   .banner { display: none; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem; }
   .banner.warn { display: block; background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
+  .recent-chips { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .recent-chips button { padding: 2px 8px; font-size: 0.78rem; border-radius: 12px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  .status-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.85rem; }
+  .status-checkboxes label { display: flex; align-items: center; gap: 3px; font-weight: normal; }
 </style>
 </head>
 <body>
@@ -55,6 +59,15 @@
     <div>
       <label>排除關鍵字（逗號分隔，職務類別／職缺名稱符合任一即排除）</label>
       <input id="filterExclude" placeholder="例如 業務, 電話行銷">
+    </div>
+    <div>
+      <label>職務類別（逗號分隔，比對職務類別／職缺名稱，符合任一即可）</label>
+      <input id="filterCategory" placeholder="例如 工程師, 分析師">
+      <div id="recentCategories" class="recent-chips"></div>
+    </div>
+    <div>
+      <label>狀態</label>
+      <div id="statusCheckboxes" class="status-checkboxes"></div>
     </div>
     <div>
       <label>排序方式</label>
@@ -98,6 +111,14 @@
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const STATUS_OPTIONS = ['最新資料', '已投遞', '有面試邀約', '已面試', '放棄'];
+  const STATUS_FILTER_OPTIONS = [
+    { value: '最新資料', label: '最新資料', defaultChecked: true },
+    { value: '', label: '空（未處理）', defaultChecked: true },
+    { value: '已投遞', label: '已投遞', defaultChecked: false },
+    { value: '有面試邀約', label: '有面試邀約', defaultChecked: false },
+    { value: '已面試', label: '已面試', defaultChecked: false },
+    { value: '放棄', label: '放棄', defaultChecked: false },
+  ];
 
   const $ = (id) => document.getElementById(id);
 
@@ -123,16 +144,60 @@
     $('status').textContent = '';
   };
 
-  $('applyFilterBtn').onclick = renderJobs;
+  $('applyFilterBtn').onclick = async () => {
+    await saveCategorySearchTerms();
+    renderJobs();
+  };
   $('sortBy').onchange = renderJobs;
   $('clearFilterBtn').onclick = () => {
     $('filterSkill').value = '';
     $('filterSalaryMin').value = '';
     $('filterEmployeeMin').value = '';
     $('filterExclude').value = '';
+    $('filterCategory').value = '';
     $('sortBy').value = '';
+    document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.checked = false; });
     renderJobs();
   };
+
+  function renderStatusCheckboxes() {
+    $('statusCheckboxes').innerHTML = STATUS_FILTER_OPTIONS.map(opt => `
+      <label>
+        <input type="checkbox" class="statusFilterCb" value="${opt.value}" ${opt.defaultChecked ? 'checked' : ''}>
+        ${opt.label}
+      </label>
+    `).join('');
+    document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.onchange = renderJobs; });
+  }
+
+  function getCheckedStatuses() {
+    return [...document.querySelectorAll('.statusFilterCb:checked')].map(cb => cb.value);
+  }
+
+  async function saveCategorySearchTerms() {
+    const terms = $('filterCategory').value.split(',').map(s => s.trim()).filter(Boolean);
+    if (!terms.length) return;
+    const rows = terms.map(term => ({ term, searched_at: new Date().toISOString() }));
+    await supabase.from('job_category_search_history').upsert(rows, { onConflict: 'user_id,term' });
+    loadRecentCategories();
+  }
+
+  async function loadRecentCategories() {
+    const { data, error } = await supabase
+      .from('job_category_search_history')
+      .select('term')
+      .order('searched_at', { ascending: false })
+      .limit(5);
+    if (error || !data) return;
+    $('recentCategories').innerHTML = data.map(r => `<button type="button" class="recent-chip-btn">${r.term}</button>`).join('');
+    document.querySelectorAll('.recent-chip-btn').forEach(btn => {
+      btn.onclick = async () => {
+        $('filterCategory').value = btn.textContent;
+        await saveCategorySearchTerms();
+        renderJobs();
+      };
+    });
+  }
 
   function parseEmployeeCount(val) {
     const m = String(val || '').match(/\d+/);
@@ -143,6 +208,8 @@
     $('login').style.display = 'none';
     $('app').style.display = 'block';
     $('whoami').textContent = email;
+    renderStatusCheckboxes();
+    loadRecentCategories();
     loadJobs();
     checkScraperStatus();
   }
@@ -206,6 +273,8 @@
     const employeeMinRaw = $('filterEmployeeMin').value;
     const employeeMin = employeeMinRaw === '' ? null : Number(employeeMinRaw);
     const excludeTerms = $('filterExclude').value.split(',').map(s => s.trim()).filter(Boolean);
+    const categoryTerms = $('filterCategory').value.split(',').map(s => s.trim()).filter(Boolean);
+    const checkedStatuses = getCheckedStatuses();
 
     const filtered = allJobs.filter(j => {
       if (skillTerms.length) {
@@ -227,6 +296,12 @@
         const hasExcluded = excludeTerms.some(t => combined.includes(t.toLowerCase()));
         if (hasExcluded) return false;
       }
+      if (categoryTerms.length) {
+        const combined = ((j.job_category || '') + ' ' + (j.job_name || '')).toLowerCase();
+        const hasAny = categoryTerms.some(t => combined.includes(t.toLowerCase()));
+        if (!hasAny) return false;
+      }
+      if (checkedStatuses.length && !checkedStatuses.includes(j.status || '')) return false;
       return true;
     });
 
@@ -263,7 +338,13 @@
           { job_id: j.job_id, status: sel.value || null, updated_at: new Date().toISOString() },
           { onConflict: 'user_id,job_id' }
         );
-        if (error) alert('狀態更新失敗：' + error.message);
+        if (error) {
+          alert('狀態更新失敗：' + error.message);
+          return;
+        }
+        const cached = allJobs.find(x => x.job_id === j.job_id);
+        if (cached) cached.status = sel.value || '';
+        renderJobs();
       };
     });
 
