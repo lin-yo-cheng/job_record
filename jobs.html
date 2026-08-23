@@ -57,6 +57,15 @@
       <input id="filterExclude" placeholder="例如 業務, 電話行銷">
     </div>
     <div>
+      <label>排序方式</label>
+      <select id="sortBy">
+        <option value="">不排序</option>
+        <option value="salary_desc">最高薪資（高到低）</option>
+        <option value="employee_desc">公司人數（多到少）</option>
+        <option value="job_name_asc">職稱（A-Z）</option>
+      </select>
+    </div>
+    <div>
       <button id="applyFilterBtn">套用篩選</button>
     </div>
     <div>
@@ -115,11 +124,13 @@
   };
 
   $('applyFilterBtn').onclick = renderJobs;
+  $('sortBy').onchange = renderJobs;
   $('clearFilterBtn').onclick = () => {
     $('filterSkill').value = '';
     $('filterSalaryMin').value = '';
     $('filterEmployeeMin').value = '';
     $('filterExclude').value = '';
+    $('sortBy').value = '';
     renderJobs();
   };
 
@@ -218,6 +229,15 @@
       }
       return true;
     });
+
+    const sortBy = $('sortBy').value;
+    if (sortBy === 'salary_desc') {
+      filtered.sort((a, b) => (b.salary_max || 0) - (a.salary_max || 0));
+    } else if (sortBy === 'employee_desc') {
+      filtered.sort((a, b) => (parseEmployeeCount(b.employees) || -1) - (parseEmployeeCount(a.employees) || -1));
+    } else if (sortBy === 'job_name_asc') {
+      filtered.sort((a, b) => (a.job_name || '').localeCompare(b.job_name || '', 'zh-Hant'));
+    }
 
     $('jobList').innerHTML = filtered.map(j => `
       <tr>
