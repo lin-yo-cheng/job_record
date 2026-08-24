@@ -150,15 +150,19 @@
   };
   $('sortBy').onchange = renderJobs;
   $('clearFilterBtn').onclick = () => {
+    resetFilterTextInputs();
+    document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.checked = false; }); // 清除篩選 = 全部不勾 = 顯示所有狀態
+    renderJobs();
+  };
+
+  function resetFilterTextInputs() {
     $('filterSkill').value = '';
     $('filterSalaryMin').value = '';
     $('filterEmployeeMin').value = '';
     $('filterExclude').value = '';
     $('filterCategory').value = '';
     $('sortBy').value = '';
-    document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.checked = false; });
-    renderJobs();
-  };
+  }
 
   function renderStatusCheckboxes() {
     $('statusCheckboxes').innerHTML = STATUS_FILTER_OPTIONS.map(opt => `
@@ -208,7 +212,8 @@
     $('login').style.display = 'none';
     $('app').style.display = 'block';
     $('whoami').textContent = email;
-    renderStatusCheckboxes();
+    resetFilterTextInputs();  // 換帳號登入時，確保不會沿用上一個帳號留在畫面上的篩選內容
+    renderStatusCheckboxes();  // 重新渲染成預設勾選狀態（最新資料＋空）
     loadRecentCategories();
     loadJobs();
     checkScraperStatus();
