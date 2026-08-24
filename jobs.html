@@ -20,8 +20,6 @@
   .count { color: #888; font-size: 0.85rem; margin-top: 8px; }
   .banner { display: none; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem; }
   .banner.warn { display: block; background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
-  .recent-chips { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-  .recent-chips button { padding: 2px 8px; font-size: 0.78rem; border-radius: 12px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
   .status-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.85rem; }
   .status-checkboxes label { display: flex; align-items: center; gap: 3px; font-weight: normal; }
 </style>
@@ -62,8 +60,8 @@
     </div>
     <div>
       <label>職務類別（逗號分隔，比對職務類別／職缺名稱，符合任一即可）</label>
-      <input id="filterCategory" placeholder="例如 工程師, 分析師">
-      <div id="recentCategories" class="recent-chips"></div>
+      <input id="filterCategory" placeholder="例如 工程師, 分析師" list="recentCategoriesList" autocomplete="off">
+      <datalist id="recentCategoriesList"></datalist>
     </div>
     <div>
       <label>狀態</label>
@@ -91,6 +89,7 @@
       <tr>
         <th>公司名稱</th>
         <th>職缺名稱</th>
+        <th>薪資</th>
         <th>擅長工具</th>
         <th>鄉鎮市區</th>
         <th>連結</th>
@@ -110,7 +109,7 @@
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  const STATUS_OPTIONS = ['最新資料', '已投遞', '有面試邀約', '已面試', '放棄'];
+  const STATUS_OPTIONS = ['最新資料', '已投遞', '有面試邀約', '已面試', '放棄', '放棄approve'];
   const STATUS_FILTER_OPTIONS = [
     { value: '最新資料', label: '最新資料', defaultChecked: true },
     { value: '', label: '空（未處理）', defaultChecked: true },
@@ -118,6 +117,7 @@
     { value: '有面試邀約', label: '有面試邀約', defaultChecked: false },
     { value: '已面試', label: '已面試', defaultChecked: false },
     { value: '放棄', label: '放棄', defaultChecked: false },
+    { value: '放棄approve', label: '放棄approve', defaultChecked: false },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -234,19 +234,19 @@
       .order('searched_at', { ascending: false })
       .limit(5);
     if (error || !data) return;
-    $('recentCategories').innerHTML = data.map(r => `<button type="button" class="recent-chip-btn">${r.term}</button>`).join('');
-    document.querySelectorAll('.recent-chip-btn').forEach(btn => {
-      btn.onclick = async () => {
-        $('filterCategory').value = btn.textContent;
-        await saveCategorySearchTerms();
-        renderJobs();
-      };
-    });
+    $('recentCategoriesList').innerHTML = data.map(r => `<option value="${r.term}">`).join('');
   }
 
   function parseEmployeeCount(val) {
     const m = String(val || '').match(/\d+/);
     return m ? parseInt(m[0], 10) : null;
+  }
+
+  function formatSalary(j) {
+    const min = j.salary_min, max = j.salary_max;
+    if (!min && !max) return '面議';
+    if (min && max && min !== max) return `${min.toLocaleString()} ~ ${max.toLocaleString()}`;
+    return (max || min).toLocaleString();
   }
 
   async function showApp(email) {
@@ -364,6 +364,7 @@
       <tr>
         <td>${j.cust_name || ''}</td>
         <td>${j.job_name || ''}</td>
+        <td>${formatSalary(j)}</td>
         <td>${j.specialty || ''}</td>
         <td>${j.address_region || ''}</td>
         <td><a href="${j.job_url || '#'}" target="_blank">連結</a></td>

@@ -174,6 +174,7 @@ def fetch_job_detail(job_id):
             'apply_count': d['header'].get('applyCount', ''),
             'job_url': f'https://www.104.com.tw/job/{job_id}',
             'cust_url': d['header'].get('custUrl', ''),
+            'job_type': d['jobDetail'].get('jobType'),  # 1=正職 2=兼職，caller 判斷完要記得從 dict 裡拿掉再寫入 jobs 表
         }
     except Exception:
         return None
@@ -230,15 +231,21 @@ def main():
         existing_ids = [jid for jid in job_ids if jid in known_job_ids]
 
         new_rows = []
+        skipped_parttime = 0
         for jid in new_ids:
             detail = fetch_job_detail(jid)
             if detail is None:
+                continue
+            if detail.pop('job_type', None) == 2:  # 兼職，排除不存
+                skipped_parttime += 1
                 continue
             detail.update({
                 'first_seen_at': now_iso(), 'last_seen_at': now_iso(),
                 'is_delisted': False, 'delisted_at': None,
             })
             new_rows.append(detail)
+        if skipped_parttime:
+            print(f'  排除 {skipped_parttime} 筆兼職職缺')
 
         if new_rows:
             sb_insert('jobs', new_rows)
