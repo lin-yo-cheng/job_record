@@ -146,12 +146,17 @@
 
   $('applyFilterBtn').onclick = async () => {
     await saveCategorySearchTerms();
+    await saveFilterState();
     renderJobs();
   };
-  $('sortBy').onchange = renderJobs;
-  $('clearFilterBtn').onclick = () => {
+  $('sortBy').onchange = async () => {
+    await saveFilterState();
+    renderJobs();
+  };
+  $('clearFilterBtn').onclick = async () => {
     resetFilterTextInputs();
     document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.checked = false; }); // 清除篩選 = 全部不勾 = 顯示所有狀態
+    await saveFilterState();
     renderJobs();
   };
 
@@ -171,11 +176,47 @@
         ${opt.label}
       </label>
     `).join('');
-    document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.onchange = renderJobs; });
+    document.querySelectorAll('.statusFilterCb').forEach(cb => {
+      cb.onchange = async () => {
+        await saveFilterState();
+        renderJobs();
+      };
+    });
   }
 
   function getCheckedStatuses() {
     return [...document.querySelectorAll('.statusFilterCb:checked')].map(cb => cb.value);
+  }
+
+  // 把目前畫面上的篩選條件存進資料庫，跟著帳號走（不同帳號各自獨立，靠 RLS 隔離）
+  async function saveFilterState() {
+    const row = {
+      skill: $('filterSkill').value,
+      salary_min: $('filterSalaryMin').value === '' ? null : Number($('filterSalaryMin').value),
+      employee_min: $('filterEmployeeMin').value === '' ? null : Number($('filterEmployeeMin').value),
+      exclude_terms: $('filterExclude').value,
+      category: $('filterCategory').value,
+      sort_by: $('sortBy').value,
+      statuses: getCheckedStatuses(),
+      updated_at: new Date().toISOString(),
+    };
+    await supabase.from('user_filters').upsert(row, { onConflict: 'user_id' });
+  }
+
+  // 登入時還原這個帳號自己上次存的篩選條件；沒存過就維持 renderStatusCheckboxes() 給的預設值
+  async function loadFilterState() {
+    const { data, error } = await supabase.from('user_filters').select('*').maybeSingle();
+    if (error || !data) return;
+    $('filterSkill').value = data.skill || '';
+    $('filterSalaryMin').value = data.salary_min ?? '';
+    $('filterEmployeeMin').value = data.employee_min ?? '';
+    $('filterExclude').value = data.exclude_terms || '';
+    $('filterCategory').value = data.category || '';
+    $('sortBy').value = data.sort_by || '';
+    const savedStatuses = data.statuses || [];
+    document.querySelectorAll('.statusFilterCb').forEach(cb => {
+      cb.checked = savedStatuses.includes(cb.value);
+    });
   }
 
   async function saveCategorySearchTerms() {
@@ -208,12 +249,12 @@
     return m ? parseInt(m[0], 10) : null;
   }
 
-  function showApp(email) {
+  async function showApp(email) {
     $('login').style.display = 'none';
     $('app').style.display = 'block';
     $('whoami').textContent = email;
-    resetFilterTextInputs();  // 換帳號登入時，確保不會沿用上一個帳號留在畫面上的篩選內容
-    renderStatusCheckboxes();  // 重新渲染成預設勾選狀態（最新資料＋空）
+    renderStatusCheckboxes();  // 先渲染成預設勾選狀態，若這個帳號有存過篩選條件，下面會覆蓋成他自己存的
+    await loadFilterState();   // 還原這個帳號自己上次存的篩選條件（沒存過就維持預設）
     loadRecentCategories();
     loadJobs();
     checkScraperStatus();
