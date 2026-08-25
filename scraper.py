@@ -220,7 +220,6 @@ def main():
         job_ids = list(dict.fromkeys(job_ids))  # 104 分頁結果偶爾會重疊，先去重
 
         print(f'搜尋 {search_id}（{keyword_str} / {area_names}）命中 {len(job_ids)} 筆')
-        user_matched_jobs.setdefault(user_id, set()).update(job_ids)
 
         unknown_ids = [jid for jid in job_ids if jid not in known_job_ids]
         if unknown_ids:
@@ -252,14 +251,20 @@ def main():
             known_job_ids.update(r['job_id'] for r in new_rows)
             print(f'  新增 {len(new_rows)} 筆新職缺')
 
+        # 只處理「確實有成功寫進 jobs 表」的職缺 ID——job_ids 原始清單裡可能包含
+        # 被排除的兼職職缺、或抓詳情失敗的職缺，這些沒有真的存進 jobs，
+        # 不能拿去寫 job_status / search_job_matches（會違反外鍵限制）
+        confirmed_job_ids = [jid for jid in job_ids if jid in known_job_ids]
+        user_matched_jobs.setdefault(user_id, set()).update(confirmed_job_ids)
+
         # 標記「這個使用者第一次看到」的職缺為最新資料——不限於系統才新增的職缺，
         # 也包含系統早就有、但這是這個使用者的搜尋第一次命中的舊職缺（例如朋友剛加的搜尋條件）
         existing_status = sb_get(
             'job_status',
-            params={'user_id': f'eq.{user_id}', 'job_id': f'in.({",".join(job_ids)})', 'select': 'job_id'},
-        ) if job_ids else []
+            params={'user_id': f'eq.{user_id}', 'job_id': f'in.({",".join(confirmed_job_ids)})', 'select': 'job_id'},
+        ) if confirmed_job_ids else []
         already_known_by_user = {r['job_id'] for r in existing_status}
-        first_seen_by_user = [jid for jid in job_ids if jid not in already_known_by_user]
+        first_seen_by_user = [jid for jid in confirmed_job_ids if jid not in already_known_by_user]
         if first_seen_by_user:
             status_rows = [
                 {'user_id': user_id, 'job_id': jid, 'status': '最新資料', 'updated_at': now_iso()}
@@ -274,7 +279,7 @@ def main():
                 {'last_seen_at': now_iso(), 'is_delisted': False, 'delisted_at': None},
             )
 
-        match_rows = [{'search_id': search_id, 'job_id': jid, 'matched_at': now_iso()} for jid in job_ids]
+        match_rows = [{'search_id': search_id, 'job_id': jid, 'matched_at': now_iso()} for jid in confirmed_job_ids]
         sb_upsert('search_job_matches', match_rows, on_conflict='search_id,job_id')
 
     # 2. 下架驗證：有狀態、但這次沒被該使用者任何搜尋命中的職缺
