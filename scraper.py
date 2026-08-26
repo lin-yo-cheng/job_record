@@ -73,6 +73,19 @@ def sb_get(table, params=None):
     return res.json()
 
 
+BATCH_SIZE = 500  # Supabase REST API 單次查詢預設最多回傳 1000 筆，用小一點的批次避免卡到上限
+
+
+def sb_get_ids(table, id_column, id_list, extra_params=None, select='*'):
+    """用 in.() 查一大批 id 是否存在，自動分批避免單次查詢被 1000 筆上限截斷。"""
+    results = []
+    for i in range(0, len(id_list), BATCH_SIZE):
+        batch = id_list[i:i + BATCH_SIZE]
+        params = {**(extra_params or {}), id_column: f'in.({",".join(batch)})', 'select': select}
+        results.extend(sb_get(table, params=params))
+    return results
+
+
 def sb_insert(table, rows):
     if not rows:
         return []
@@ -225,7 +238,7 @@ def main():
 
         unknown_ids = [jid for jid in job_ids if jid not in known_job_ids]
         if unknown_ids:
-            found = sb_get('jobs', params={'job_id': f'in.({",".join(unknown_ids)})', 'select': 'job_id'})
+            found = sb_get_ids('jobs', 'job_id', unknown_ids, select='job_id')
             known_job_ids.update(r['job_id'] for r in found)
 
         new_ids = [jid for jid in job_ids if jid not in known_job_ids]
@@ -263,9 +276,9 @@ def main():
 
         # 標記「這個使用者第一次看到」的職缺為最新資料——不限於系統才新增的職缺，
         # 也包含系統早就有、但這是這個使用者的搜尋第一次命中的舊職缺（例如朋友剛加的搜尋條件）
-        existing_status = sb_get(
-            'job_status',
-            params={'user_id': f'eq.{user_id}', 'job_id': f'in.({",".join(confirmed_job_ids)})', 'select': 'job_id'},
+        existing_status = sb_get_ids(
+            'job_status', 'job_id', confirmed_job_ids,
+            extra_params={'user_id': f'eq.{user_id}'}, select='job_id',
         ) if confirmed_job_ids else []
         already_known_by_user = {r['job_id'] for r in existing_status}
         first_seen_by_user = [jid for jid in confirmed_job_ids if jid not in already_known_by_user]
