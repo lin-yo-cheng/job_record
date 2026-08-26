@@ -174,7 +174,9 @@ def fetch_job_detail(job_id):
             'apply_count': d['header'].get('applyCount', ''),
             'job_url': f'https://www.104.com.tw/job/{job_id}',
             'cust_url': d['header'].get('custUrl', ''),
-            'job_type': d['jobDetail'].get('jobType'),  # 1=正職 2=兼職，caller 判斷完要記得從 dict 裡拿掉再寫入 jobs 表
+            'job_type': d['jobDetail'].get('jobType'),  # 1=正職 2=兼職
+            'hire_type': d['jobDetail'].get('hireType'),  # 0=一般直雇 2=派遣
+            # 這兩個是暫存欄位，caller 判斷完要記得從 dict 裡拿掉再寫入 jobs 表
         }
     except Exception:
         return None
@@ -235,7 +237,9 @@ def main():
             detail = fetch_job_detail(jid)
             if detail is None:
                 continue
-            if detail.pop('job_type', None) == 2:  # 兼職，排除不存
+            job_type = detail.pop('job_type', None)
+            hire_type = detail.pop('hire_type', None)
+            if job_type == 2 or hire_type == 2:  # 兼職或派遣，排除不存
                 skipped_parttime += 1
                 continue
             detail.update({
@@ -244,7 +248,7 @@ def main():
             })
             new_rows.append(detail)
         if skipped_parttime:
-            print(f'  排除 {skipped_parttime} 筆兼職職缺')
+            print(f'  排除 {skipped_parttime} 筆兼職／派遣職缺')
 
         if new_rows:
             sb_insert('jobs', new_rows)
@@ -297,6 +301,11 @@ def main():
     dead_ids = [jid for jid in to_verify if not verify_job_alive(jid)]
     if dead_ids:
         sb_patch('jobs', {'job_id': f'in.({",".join(dead_ids)})'}, {'is_delisted': True, 'delisted_at': now_iso()})
+        # 覆蓋所有使用者對這些職缺原本的狀態（已投遞等），改成「已下架」
+        sb_patch(
+            'job_status', {'job_id': f'in.({",".join(dead_ids)})'},
+            {'status': '已下架', 'updated_at': now_iso()},
+        )
     print(f'標記下架：{len(dead_ids)} 筆')
 
     # 3. 只有整個排程成功跑到這裡，才清空「上一輪之前」還沒被使用者處理的最新資料標記

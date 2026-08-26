@@ -90,6 +90,7 @@
         <th>公司名稱</th>
         <th>職缺名稱</th>
         <th>薪資</th>
+        <th>公司人數</th>
         <th>擅長工具</th>
         <th>鄉鎮市區</th>
         <th>連結</th>
@@ -109,7 +110,7 @@
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  const STATUS_OPTIONS = ['最新資料', '已投遞', '有面試邀約', '已面試', '放棄', '放棄approve'];
+  const STATUS_OPTIONS = ['最新資料', '已投遞', '有面試邀約', '已面試', '放棄', '放棄approve', '已下架'];
   const STATUS_FILTER_OPTIONS = [
     { value: '最新資料', label: '最新資料', defaultChecked: true },
     { value: '', label: '空（未處理）', defaultChecked: true },
@@ -118,6 +119,7 @@
     { value: '已面試', label: '已面試', defaultChecked: false },
     { value: '放棄', label: '放棄', defaultChecked: false },
     { value: '放棄approve', label: '放棄approve', defaultChecked: false },
+    { value: '已下架', label: '已下架', defaultChecked: false },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -189,6 +191,7 @@
   }
 
   // 把目前畫面上的篩選條件存進資料庫，跟著帳號走（不同帳號各自獨立，靠 RLS 隔離）
+  // 狀態勾選框不存、不還原，每次登入固定用 renderStatusCheckboxes() 的預設值（最新資料＋空）
   async function saveFilterState() {
     const row = {
       skill: $('filterSkill').value,
@@ -197,13 +200,12 @@
       exclude_terms: $('filterExclude').value,
       category: $('filterCategory').value,
       sort_by: $('sortBy').value,
-      statuses: getCheckedStatuses(),
       updated_at: new Date().toISOString(),
     };
     await supabase.from('user_filters').upsert(row, { onConflict: 'user_id' });
   }
 
-  // 登入時還原這個帳號自己上次存的篩選條件；沒存過就維持 renderStatusCheckboxes() 給的預設值
+  // 登入時還原這個帳號自己上次存的篩選條件（狀態勾選框不受影響，維持預設）；沒存過就維持預設值
   async function loadFilterState() {
     const { data, error } = await supabase.from('user_filters').select('*').maybeSingle();
     if (error || !data) return;
@@ -213,10 +215,6 @@
     $('filterExclude').value = data.exclude_terms || '';
     $('filterCategory').value = data.category || '';
     $('sortBy').value = data.sort_by || '';
-    const savedStatuses = data.statuses || [];
-    document.querySelectorAll('.statusFilterCb').forEach(cb => {
-      cb.checked = savedStatuses.includes(cb.value);
-    });
   }
 
   async function saveCategorySearchTerms() {
@@ -365,6 +363,7 @@
         <td>${j.cust_name || ''}</td>
         <td>${j.job_name || ''}</td>
         <td>${formatSalary(j)}</td>
+        <td>${j.employees || ''}</td>
         <td>${j.specialty || ''}</td>
         <td>${j.address_region || ''}</td>
         <td><a href="${j.job_url || '#'}" target="_blank">連結</a></td>
