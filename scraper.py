@@ -6,6 +6,7 @@ job_104 每日排程爬蟲
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -13,6 +14,7 @@ from urllib.parse import quote
 import requests
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOCK_FILE = os.path.join(SCRIPT_DIR, '.scraper.lock')
 
 
 def load_env(path):
@@ -63,6 +65,40 @@ AREA_CODE = load_area_code()
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---------- 防止同時執行兩份 ----------
+
+def is_pid_running(pid):
+    try:
+        result = subprocess.run(
+            ['tasklist', '/FI', f'PID eq {pid}'],
+            capture_output=True, text=True, timeout=10,
+        )
+        return str(pid) in result.stdout
+    except Exception:
+        return False  # 查不到就當作沒在跑，不要卡住排程
+
+
+def acquire_lock():
+    """回傳 True 代表成功取得鎖、可以繼續執行；False 代表另一個實例還在跑，這次該跳過。"""
+    if os.path.exists(LOCK_FILE):
+        with open(LOCK_FILE, encoding='utf-8') as f:
+            old_pid = f.read().strip()
+        if old_pid.isdigit() and is_pid_running(int(old_pid)):
+            print(f'[跳過] 偵測到另一個爬蟲程序（PID {old_pid}）還在執行，這次不重複執行')
+            return False
+        print(f'[提示] 發現舊的鎖定檔案（PID {old_pid} 已不存在，判斷是上次異常中斷），繼續執行')
+    with open(LOCK_FILE, 'w', encoding='utf-8') as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def release_lock():
+    try:
+        os.remove(LOCK_FILE)
+    except FileNotFoundError:
+        pass
 
 
 # ---------- Supabase REST helpers ----------
@@ -340,6 +376,9 @@ def main():
 
 
 if __name__ == '__main__':
+    lock_acquired = acquire_lock()
+    if not lock_acquired:
+        sys.exit(0)
     try:
         main()
     except SystemExit:
@@ -348,3 +387,5 @@ if __name__ == '__main__':
         print(f'[未預期的錯誤] {e}')
         sb_report_status(False, f'未預期的錯誤: {e}')
         sys.exit(1)
+    finally:
+        release_lock()

@@ -3,3 +3,4 @@
 _test_cookie.py
 __pycache__/
 full_run_log.txt
+.scraper.lock
