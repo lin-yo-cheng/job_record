@@ -277,7 +277,33 @@
     }
   }
 
+  function normalizeArea(s) {
+    return (s || '').trim().replace(/[市縣]$/, '');
+  }
+
+  // 職缺的地址是否對得上使用者「目前」任一組搜尋條件的地區——
+  // 用來過濾掉 search_job_matches 裡過期的舊命中紀錄（職缺後來改過內容、地區已經不符合了，
+  // 但資料庫的命中紀錄從沒被清除，這裡在畫面顯示前擋掉，不用動資料庫）
+  function jobMatchesUserAreas(job, userAreas) {
+    if (!userAreas.length) return true;  // 使用者沒有任何搜尋條件時不過濾，避免誤判
+    const jobAreaN = normalizeArea(job.address_area);
+    const jobRegion = job.address_region || '';
+    return userAreas.some(area => {
+      const areaN = normalizeArea(area);
+      return jobAreaN === areaN || jobRegion.includes(areaN) || jobRegion.startsWith(area);
+    });
+  }
+
   async function loadJobs() {
+    const { data: mySearches, error: searchErr } = await supabase
+      .from('saved_searches')
+      .select('area');
+    if (searchErr) {
+      alert('讀取搜尋條件失敗：' + searchErr.message);
+      return;
+    }
+    const userAreas = [...new Set(mySearches.flatMap(s => s.area || []))];
+
     // 只會拿到「自己的搜尋條件」命中的職缺，因為 search_job_matches 的 RLS 是透過 saved_searches.user_id 過濾的
     const { data: matches, error } = await supabase
       .from('search_job_matches')
@@ -289,7 +315,7 @@
 
     const jobMap = new Map();
     for (const m of matches) {
-      if (m.jobs) jobMap.set(m.job_id, m.jobs);
+      if (m.jobs && jobMatchesUserAreas(m.jobs, userAreas)) jobMap.set(m.job_id, m.jobs);
     }
     const jobIds = [...jobMap.keys()];
 
