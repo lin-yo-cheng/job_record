@@ -44,7 +44,8 @@
   <div class="filters">
     <div>
       <label>擅長工具／技能（逗號分隔，符合任一即可）</label>
-      <input id="filterSkill" placeholder="例如 SQL, Python">
+      <input id="filterSkill" placeholder="其他技能請在這裡輸入，例如 Tableau, Java">
+      <div id="skillCheckboxes" class="status-checkboxes" style="margin-top:6px;max-width:340px"></div>
     </div>
     <div>
       <label>最高薪資門檻（大於）</label>
@@ -122,6 +123,18 @@
     { value: '已下架', label: '已下架', defaultChecked: false },
   ];
 
+  // 擅長工具／技能的常用勾選項：value 是實際拿去比對的字串（不分大小寫、包含即可）
+  const SKILL_OPTIONS = [
+    { value: 'sql', label: 'SQL' },
+    { value: 'python', label: 'Python' },
+    { value: 'oracle', label: 'Oracle' },
+    { value: 'power bi', label: 'Power BI' },
+    { value: '視覺化', label: '視覺化' },
+    { value: 'llm', label: 'LLM' },
+    { value: '資料庫', label: '資料庫' },
+    { value: 'ai', label: 'AI' },
+  ];
+
   const $ = (id) => document.getElementById(id);
 
   let allJobs = [];
@@ -158,6 +171,7 @@
   $('clearFilterBtn').onclick = async () => {
     resetFilterTextInputs();
     document.querySelectorAll('.statusFilterCb').forEach(cb => { cb.checked = false; }); // 清除篩選 = 全部不勾 = 顯示所有狀態
+    document.querySelectorAll('.skillFilterCb').forEach(cb => { cb.checked = false; });
     await saveFilterState();
     renderJobs();
   };
@@ -190,6 +204,25 @@
     return [...document.querySelectorAll('.statusFilterCb:checked')].map(cb => cb.value);
   }
 
+  function renderSkillCheckboxes() {
+    $('skillCheckboxes').innerHTML = SKILL_OPTIONS.map(opt => `
+      <label>
+        <input type="checkbox" class="skillFilterCb" value="${opt.value}">
+        ${opt.label}
+      </label>
+    `).join('');
+    document.querySelectorAll('.skillFilterCb').forEach(cb => {
+      cb.onchange = async () => {
+        await saveFilterState();
+        renderJobs();
+      };
+    });
+  }
+
+  function getCheckedSkills() {
+    return [...document.querySelectorAll('.skillFilterCb:checked')].map(cb => cb.value);
+  }
+
   // 把目前畫面上的篩選條件存進資料庫，跟著帳號走（不同帳號各自獨立，靠 RLS 隔離）
   // 狀態勾選框不存、不還原，每次登入固定用 renderStatusCheckboxes() 的預設值（最新資料＋空）
   async function saveFilterState() {
@@ -200,6 +233,7 @@
       exclude_terms: $('filterExclude').value,
       category: $('filterCategory').value,
       sort_by: $('sortBy').value,
+      skill_options: getCheckedSkills(),
       updated_at: new Date().toISOString(),
     };
     await supabase.from('user_filters').upsert(row, { onConflict: 'user_id' });
@@ -215,6 +249,10 @@
     $('filterExclude').value = data.exclude_terms || '';
     $('filterCategory').value = data.category || '';
     $('sortBy').value = data.sort_by || '';
+    const savedSkills = data.skill_options || [];
+    document.querySelectorAll('.skillFilterCb').forEach(cb => {
+      cb.checked = savedSkills.includes(cb.value);
+    });
   }
 
   async function saveCategorySearchTerms() {
@@ -252,6 +290,7 @@
     $('app').style.display = 'block';
     $('whoami').textContent = email;
     renderStatusCheckboxes();  // 先渲染成預設勾選狀態，若這個帳號有存過篩選條件，下面會覆蓋成他自己存的
+    renderSkillCheckboxes();   // 技能勾選框先渲染好，loadFilterState 才有東西可以還原
     await loadFilterState();   // 還原這個帳號自己上次存的篩選條件（沒存過就維持預設）
     loadRecentCategories();
     loadJobs();
@@ -337,7 +376,11 @@
   }
 
   function renderJobs() {
-    const skillTerms = $('filterSkill').value.split(',').map(s => s.trim()).filter(Boolean);
+    // 輸入框打的詞 + 勾選的技能，全部合併，符合任一即可
+    const skillTerms = [
+      ...$('filterSkill').value.split(',').map(s => s.trim()).filter(Boolean),
+      ...getCheckedSkills(),
+    ];
     const salaryMinRaw = $('filterSalaryMin').value;
     const salaryMin = salaryMinRaw === '' ? null : Number(salaryMinRaw);
     const employeeMinRaw = $('filterEmployeeMin').value;
